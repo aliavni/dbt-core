@@ -83,7 +83,6 @@ REQUIRED_PARSED_NODE_KEYS = frozenset(
         "compiled_path",
         "patch_path",
         "docs",
-        "deferred",
         "checksum",
         "unrendered_config",
         "created_at",
