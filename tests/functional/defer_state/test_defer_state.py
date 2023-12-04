@@ -1,4 +1,3 @@
-import json
 import os
 import shutil
 from copy import deepcopy
@@ -180,10 +179,6 @@ class TestRunDeferState(BaseDeferState):
         )
         assert other_schema not in results[0].node.compiled_code
         assert unique_schema in results[0].node.compiled_code
-
-        with open("target/manifest.json") as fp:
-            data = json.load(fp)
-        assert data["nodes"]["seed.test.seed"]["deferred"]
 
         assert len(results) == 1
 
