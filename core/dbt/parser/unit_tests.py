@@ -131,7 +131,6 @@ class UnitTestManifestLoader:
                 "fqn": original_input_node.fqn,
                 "checksum": FileHash.empty(),
                 "raw_code": self._build_fixture_raw_code(given.rows, None),
-                "defer_relation": original_input_node.defer_relation,
             }
 
             if original_input_node.resource_type in (
@@ -146,6 +145,7 @@ class UnitTestManifestLoader:
                     unique_id=f"model.{original_input_node.package_name}.{input_name}",
                     name=input_name,
                     path=original_input_node.path or f"{input_name}.sql",
+                    defer_relation=original_input_node.defer_relation,
                 )
                 if (
                     original_input_node.resource_type == NodeType.Model
