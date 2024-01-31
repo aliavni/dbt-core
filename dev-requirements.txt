@@ -1,4 +1,4 @@
-git+https://github.com/dbt-labs/dbt-adapters.git@main
+git+https://github.com/dbt-labs/dbt-adapters.git@jerco/support-deferral-refactor
 black==23.3.0
 bumpversion
 ddtrace==2.1.7
