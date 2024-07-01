@@ -1,33 +1,18 @@
-from dbt.parser.schemas import YamlReader, SchemaParser, ParseResult
-from dbt.parser.common import YamlBlock
-from dbt.node_types import NodeType
-from dbt.contracts.graph.unparsed import (
-    UnparsedDimension,
-    UnparsedDimensionTypeParams,
-    UnparsedEntity,
-    UnparsedExport,
-    UnparsedExposure,
-    UnparsedGroup,
-    UnparsedMeasure,
-    UnparsedMetric,
-    UnparsedMetricInput,
-    UnparsedMetricInputMeasure,
-    UnparsedMetricTypeParams,
-    UnparsedNonAdditiveDimension,
-    UnparsedQueryParams,
-    UnparsedSavedQuery,
-    UnparsedSemanticModel,
-    UnparsedConversionTypeParams,
+from typing import Any, Dict, List, Optional, Union
+
+from dbt_semantic_interfaces.type_enums import (
+    AggregationType,
+    ConversionCalculationType,
+    DimensionType,
+    EntityType,
+    MetricType,
+    PeriodAggregation,
+    TimeGranularity,
 )
-from dbt.contracts.graph.nodes import (
-    Exposure,
-    Group,
-    Metric,
-    SemanticModel,
-    SavedQuery,
-)
+
 from dbt.artifacts.resources import (
     ConversionTypeParams,
+    CumulativeTypeParams,
     Dimension,
     DimensionTypeParams,
     Entity,
@@ -46,26 +31,42 @@ from dbt.artifacts.resources import (
     WhereFilter,
     WhereFilterIntersection,
 )
-from dbt_common.exceptions import DbtInternalError
-from dbt.exceptions import YamlParseDictError, JSONValidationError
-from dbt.context.providers import generate_parse_exposure, generate_parse_semantic_models
-
+from dbt.clients.jinja import get_rendered
 from dbt.context.context_config import (
     BaseContextConfigGenerator,
     ContextConfigGenerator,
     UnrenderedConfigGenerator,
 )
-from dbt.clients.jinja import get_rendered
-from dbt_common.dataclass_schema import ValidationError
-from dbt_semantic_interfaces.type_enums import (
-    AggregationType,
-    ConversionCalculationType,
-    DimensionType,
-    EntityType,
-    MetricType,
-    TimeGranularity,
+from dbt.context.providers import (
+    generate_parse_exposure,
+    generate_parse_semantic_models,
 )
-from typing import Any, Dict, List, Optional, Union
+from dbt.contracts.graph.nodes import Exposure, Group, Metric, SavedQuery, SemanticModel
+from dbt.contracts.graph.unparsed import (
+    UnparsedConversionTypeParams,
+    UnparsedCumulativeTypeParams,
+    UnparsedDimension,
+    UnparsedDimensionTypeParams,
+    UnparsedEntity,
+    UnparsedExport,
+    UnparsedExposure,
+    UnparsedGroup,
+    UnparsedMeasure,
+    UnparsedMetric,
+    UnparsedMetricInput,
+    UnparsedMetricInputMeasure,
+    UnparsedMetricTypeParams,
+    UnparsedNonAdditiveDimension,
+    UnparsedQueryParams,
+    UnparsedSavedQuery,
+    UnparsedSemanticModel,
+)
+from dbt.exceptions import JSONValidationError, YamlParseDictError
+from dbt.node_types import NodeType
+from dbt.parser.common import YamlBlock
+from dbt.parser.schemas import ParseResult, SchemaParser, YamlReader
+from dbt_common.dataclass_schema import ValidationError
+from dbt_common.exceptions import DbtInternalError
 
 
 def parse_where_filter(
@@ -223,9 +224,19 @@ class MetricParser(YamlReader):
 
         return input_measures
 
-    def _get_time_window(
-        self,
-        unparsed_window: Optional[str],
+    def _get_period_agg(self, unparsed_period_agg: str) -> PeriodAggregation:
+        return PeriodAggregation(unparsed_period_agg)
+
+    def _get_optional_grain_to_date(
+        self, unparsed_grain_to_date: Optional[str]
+    ) -> Optional[TimeGranularity]:
+        if not unparsed_grain_to_date:
+            return None
+
+        return TimeGranularity(unparsed_grain_to_date)
+
+    def _get_optional_time_window(
+        self, unparsed_window: Optional[str]
     ) -> Optional[MetricTimeWindow]:
         if unparsed_window is not None:
             parts = unparsed_window.split(" ")
@@ -279,7 +290,7 @@ class MetricParser(YamlReader):
                 name=unparsed.name,
                 filter=parse_where_filter(unparsed.filter),
                 alias=unparsed.alias,
-                offset_window=self._get_time_window(unparsed.offset_window),
+                offset_window=self._get_optional_time_window(unparsed.offset_window),
                 offset_to_grain=offset_to_grain,
             )
 
@@ -313,11 +324,48 @@ class MetricParser(YamlReader):
             conversion_measure=self._get_input_measure(unparsed.conversion_measure),
             entity=unparsed.entity,
             calculation=ConversionCalculationType(unparsed.calculation),
-            window=self._get_time_window(unparsed.window),
+            window=self._get_optional_time_window(unparsed.window),
             constant_properties=unparsed.constant_properties,
         )
 
-    def _get_metric_type_params(self, type_params: UnparsedMetricTypeParams) -> MetricTypeParams:
+    def _get_optional_cumulative_type_params(
+        self, unparsed_metric: UnparsedMetric
+    ) -> Optional[CumulativeTypeParams]:
+        unparsed_type_params = unparsed_metric.type_params
+        if unparsed_metric.type.lower() == MetricType.CUMULATIVE.value:
+            if not unparsed_type_params.cumulative_type_params:
+                unparsed_type_params.cumulative_type_params = UnparsedCumulativeTypeParams()
+
+            if (
+                unparsed_type_params.window
+                and not unparsed_type_params.cumulative_type_params.window
+            ):
+                unparsed_type_params.cumulative_type_params.window = unparsed_type_params.window
+            if (
+                unparsed_type_params.grain_to_date
+                and not unparsed_type_params.cumulative_type_params.grain_to_date
+            ):
+                unparsed_type_params.cumulative_type_params.grain_to_date = (
+                    unparsed_type_params.grain_to_date
+                )
+
+            return CumulativeTypeParams(
+                window=self._get_optional_time_window(
+                    unparsed_type_params.cumulative_type_params.window
+                ),
+                grain_to_date=self._get_optional_grain_to_date(
+                    unparsed_type_params.cumulative_type_params.grain_to_date
+                ),
+                period_agg=self._get_period_agg(
+                    unparsed_type_params.cumulative_type_params.period_agg
+                ),
+            )
+
+        return None
+
+    def _get_metric_type_params(self, unparsed_metric: UnparsedMetric) -> MetricTypeParams:
+        type_params = unparsed_metric.type_params
+
         grain_to_date: Optional[TimeGranularity] = None
         if type_params.grain_to_date is not None:
             grain_to_date = TimeGranularity(type_params.grain_to_date)
@@ -327,12 +375,15 @@ class MetricParser(YamlReader):
             numerator=self._get_optional_metric_input(type_params.numerator),
             denominator=self._get_optional_metric_input(type_params.denominator),
             expr=str(type_params.expr) if type_params.expr is not None else None,
-            window=self._get_time_window(type_params.window),
+            window=self._get_optional_time_window(type_params.window),
             grain_to_date=grain_to_date,
             metrics=self._get_metric_inputs(type_params.metrics),
             conversion_type_params=self._get_optional_conversion_type_params(
                 type_params.conversion_type_params
-            )
+            ),
+            cumulative_type_params=self._get_optional_cumulative_type_params(
+                unparsed_metric=unparsed_metric,
+            ),
             # input measures are calculated via metric processing post parsing
             # input_measures=?,
         )
@@ -382,7 +433,7 @@ class MetricParser(YamlReader):
             description=unparsed.description,
             label=unparsed.label,
             type=MetricType(unparsed.type),
-            type_params=self._get_metric_type_params(unparsed.type_params),
+            type_params=self._get_metric_type_params(unparsed),
             filter=parse_where_filter(unparsed.filter),
             meta=unparsed.meta,
             tags=unparsed.tags,
@@ -763,6 +814,22 @@ class SavedQueryParser(YamlReader):
             unrendered_config=unrendered_config,
             group=config.group,
         )
+
+        for export in parsed.exports:
+            self.schema_parser.update_parsed_node_relation_names(export, export.config.to_dict())  # type: ignore
+
+            if not export.config.schema_name:
+                export.config.schema_name = getattr(export, "schema", None)
+            delattr(export, "schema")
+
+            export.config.database = getattr(export, "database", None) or export.config.database
+            delattr(export, "database")
+
+            if not export.config.alias:
+                export.config.alias = getattr(export, "alias", None)
+            delattr(export, "alias")
+
+            delattr(export, "relation_name")
 
         # Only add thes saved query if it's enabled, otherwise we track it with other diabled nodes
         if parsed.config.enabled:

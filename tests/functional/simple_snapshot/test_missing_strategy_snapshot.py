@@ -1,15 +1,16 @@
 import pytest
+
 from dbt.tests.util import run_dbt
-from dbt.exceptions import ParsingError
+from dbt_common.dataclass_schema import ValidationError
 from tests.functional.simple_snapshot.fixtures import (
-    models__schema_yml,
-    models__ref_snapshot_sql,
     macros__test_no_overlaps_sql,
+    models__ref_snapshot_sql,
+    models__schema_yml,
 )
 
 snapshots_invalid__snapshot_sql = """
 {# make sure to never name this anything with `target_schema` in the name, or the test will be invalid! #}
-{% snapshot missing_field_target_underscore_schema %}
+{% snapshot snapshot_actual %}
     {# missing the mandatory target_schema parameter #}
     {{
         config(
@@ -43,7 +44,10 @@ def macros():
 
 
 def test_missing_strategy(project):
-    with pytest.raises(ParsingError) as exc:
+    with pytest.raises(ValidationError) as exc:
         run_dbt(["compile"], expect_pass=False)
 
-    assert "Snapshots must be configured with a 'strategy'" in str(exc.value)
+    assert (
+        "Snapshots must be configured with a 'strategy', 'unique_key', and 'target_schema'"
+        in str(exc.value)
+    )

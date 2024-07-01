@@ -6,20 +6,22 @@ from pathlib import Path
 from pprint import pformat as pf
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
-from click import Context, get_current_context, Parameter
-from click.core import Command as ClickCommand, Group, ParameterSource
+from click import Context, Parameter, get_current_context
+from click.core import Command as ClickCommand
+from click.core import Group, ParameterSource
+
 from dbt.cli.exceptions import DbtUsageException
 from dbt.cli.resolvers import default_log_path, default_project_dir
 from dbt.cli.types import Command as CliCommand
 from dbt.config.project import read_project_flags
 from dbt.contracts.project import ProjectFlags
+from dbt.deprecations import renamed_env_var
+from dbt.events import ALL_EVENT_NAMES
 from dbt_common import ui
+from dbt_common.clients import jinja
 from dbt_common.events import functions
 from dbt_common.exceptions import DbtInternalError
-from dbt_common.clients import jinja
-from dbt.deprecations import renamed_env_var
 from dbt_common.helper_types import WarnErrorOptions
-from dbt.events import ALL_EVENT_NAMES
 
 if os.name != "nt":
     # https://bugs.python.org/issue41567
@@ -55,6 +57,7 @@ def convert_config(config_name, config_value):
         ret = WarnErrorOptions(
             include=config_value.get("include", []),
             exclude=config_value.get("exclude", []),
+            silence=config_value.get("silence", []),
             valid_error_names=ALL_EVENT_NAMES,
         )
     return ret
@@ -287,6 +290,10 @@ class Flags:
             params_assigned_from_default, ["WARN_ERROR", "WARN_ERROR_OPTIONS"]
         )
 
+        # Handle arguments mutually exclusive with INLINE
+        self._assert_mutually_exclusive(params_assigned_from_default, ["SELECT", "INLINE"])
+        self._assert_mutually_exclusive(params_assigned_from_default, ["SELECTOR", "INLINE"])
+
         # Support lower cased access for legacy code.
         params = set(
             x for x in dir(self) if not callable(getattr(self, x)) and not x.startswith("__")
@@ -313,7 +320,9 @@ class Flags:
         """
         set_flag = None
         for flag in group:
-            flag_set_by_user = flag.lower() not in params_assigned_from_default
+            flag_set_by_user = (
+                hasattr(self, flag) and flag.lower() not in params_assigned_from_default
+            )
             if flag_set_by_user and set_flag:
                 raise DbtUsageException(
                     f"{flag.lower()}: not allowed with argument {set_flag.lower()}"
@@ -351,6 +360,11 @@ class Flags:
         # Set globals for common.jinja
         if getattr(self, "MACRO_DEBUGGING", None) is not None:
             jinja.MACRO_DEBUGGING = getattr(self, "MACRO_DEBUGGING")
+
+    # This is here to prevent mypy from complaining about all of the
+    # attributes which we added dynamically.
+    def __getattr__(self, name: str) -> Any:
+        return super().__getattribute__(name)  # type: ignore
 
 
 CommandParams = List[str]

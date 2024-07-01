@@ -1,20 +1,24 @@
 import threading
 from typing import Dict, List, Set
 
-from .run import RunTask, ModelRunner as run_model_runner
-from .snapshot import SnapshotRunner as snapshot_model_runner
-from .seed import SeedRunner as seed_runner
-from .test import TestRunner as test_runner
-
 from dbt.artifacts.schemas.results import NodeStatus, RunStatus
 from dbt.artifacts.schemas.run import RunResult
-from dbt.graph import ResourceTypeSelector, GraphQueue, Graph
-from dbt.node_types import NodeType
-from dbt.task.test import TestSelector
-from dbt.task.base import BaseRunner, resource_types_from_args
-from dbt_common.events.functions import fire_event
+from dbt.cli.flags import Flags
+from dbt.config.runtime import RuntimeConfig
+from dbt.contracts.graph.manifest import Manifest
 from dbt.events.types import LogNodeNoOpResult
 from dbt.exceptions import DbtInternalError
+from dbt.graph import Graph, GraphQueue, ResourceTypeSelector
+from dbt.node_types import NodeType
+from dbt.task.base import BaseRunner, resource_types_from_args
+from dbt.task.test import TestSelector
+from dbt_common.events.functions import fire_event
+
+from .run import ModelRunner as run_model_runner
+from .run import RunTask
+from .seed import SeedRunner as seed_runner
+from .snapshot import SnapshotRunner as snapshot_model_runner
+from .test import TestRunner as test_runner
 
 
 class SavedQueryRunner(BaseRunner):
@@ -74,7 +78,7 @@ class BuildTask(RunTask):
     }
     ALL_RESOURCE_VALUES = frozenset({x for x in RUNNER_MAP.keys()})
 
-    def __init__(self, args, config, manifest) -> None:
+    def __init__(self, args: Flags, config: RuntimeConfig, manifest: Manifest) -> None:
         super().__init__(args, config, manifest)
         self.selected_unit_tests: Set = set()
         self.model_to_unit_test_map: Dict[str, List] = {}
