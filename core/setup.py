@@ -56,6 +56,7 @@ setup(
         # dbt-core uses these packages in standard ways. Pin to the major version, and check compatibility
         # with major versions in each new minor version of dbt-core.
         "click>=8.0.2,<9.0",
+        "jsonschema>=4.19.1,<5.0",
         "networkx>=2.3,<4.0",
         "protobuf>=5.0,<6.0",
         "requests<3.0.0",  # should match dbt-common
@@ -73,7 +74,8 @@ setup(
         # Minor versions for these are expected to be backwards-compatible
         "dbt-common>=1.22.0,<2.0",
         "dbt-adapters>=1.15.2,<2.0",
-        "dbt-protos>=1.0.312,<2.0",
+        "dbt-protos>=1.0.315,<2.0",
+        "pydantic<3",
         # ----
         # Expect compatibility with all new versions of these packages, so lower bounds only.
         "packaging>20.9",
@@ -81,7 +83,6 @@ setup(
         "pyyaml>=6.0",
         "daff>=1.3.46",
         "typing-extensions>=4.4",
-        "pydantic<2",
         # ----
     ],
     zip_safe=False,

@@ -75,6 +75,20 @@ class ModelConfig(NodeConfig):
     )
     freshness: Optional[ModelFreshness] = None
 
+    @classmethod
+    def __pre_deserialize__(cls, data):
+        data = super().__pre_deserialize__(data)
+        # scrub out model configs where "build_after" is not defined
+        if (
+            "freshness" in data
+            and isinstance(data["freshness"], dict)
+            and "build_after" in data["freshness"]
+        ):
+            data["freshness"] = ModelFreshness.from_dict(data["freshness"]).to_dict()
+        else:
+            data.pop("freshness", None)
+        return data
+
 
 @dataclass
 class CustomGranularity(dbtClassMixin):
@@ -100,7 +114,6 @@ class Model(CompiledResource):
     defer_relation: Optional[DeferRelation] = None
     primary_key: List[str] = field(default_factory=list)
     time_spine: Optional[TimeSpine] = None
-    freshness: Optional[ModelFreshness] = None
 
     def __post_serialize__(self, dct: Dict, context: Optional[Dict] = None):
         dct = super().__post_serialize__(dct, context)

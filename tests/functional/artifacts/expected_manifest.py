@@ -383,7 +383,6 @@ def expected_seeded_manifest(project, model_database=None, quote_model=False):
                 "version": None,
                 "latest_version": None,
                 "time_spine": None,
-                "freshness": None,
                 "doc_blocks": [],
             },
             "model.test.second_model": {
@@ -494,7 +493,6 @@ def expected_seeded_manifest(project, model_database=None, quote_model=False):
                 "version": None,
                 "latest_version": None,
                 "time_spine": None,
-                "freshness": None,
                 "doc_blocks": [],
             },
             "seed.test.seed": {
@@ -818,7 +816,11 @@ def expected_seeded_manifest(project, model_database=None, quote_model=False):
                 "config": {
                     "enabled": True,
                     "event_time": None,
-                    "freshness": None,
+                    "freshness": {
+                        "error_after": {"count": None, "period": None},
+                        "warn_after": {"count": None, "period": None},
+                        "filter": None,
+                    },
                 },
                 "quoting": {
                     "database": None,
@@ -1051,7 +1053,6 @@ def expected_references_manifest(project):
                 "latest_version": None,
                 "constraints": [],
                 "time_spine": None,
-                "freshness": None,
                 "doc_blocks": [],
             },
             "model.test.ephemeral_summary": {
@@ -1129,7 +1130,6 @@ def expected_references_manifest(project):
                 "latest_version": None,
                 "constraints": [],
                 "time_spine": None,
-                "freshness": None,
                 "doc_blocks": ["doc.test.ephemeral_summary"],
             },
             "model.test.view_summary": {
@@ -1203,7 +1203,6 @@ def expected_references_manifest(project):
                 "latest_version": None,
                 "constraints": [],
                 "time_spine": None,
-                "freshness": None,
                 "doc_blocks": ["doc.test.view_summary"],
             },
             "seed.test.seed": {
@@ -1358,7 +1357,11 @@ def expected_references_manifest(project):
                 "config": {
                     "enabled": True,
                     "event_time": None,
-                    "freshness": None,
+                    "freshness": {
+                        "error_after": {"count": None, "period": None},
+                        "warn_after": {"count": None, "period": None},
+                        "filter": None,
+                    },
                 },
                 "quoting": {
                     "database": False,
@@ -1701,7 +1704,6 @@ def expected_versions_manifest(project):
                 "version": 1,
                 "latest_version": 2,
                 "time_spine": None,
-                "freshness": None,
                 "doc_blocks": [],
             },
             "model.test.versioned_model.v2": {
@@ -1784,7 +1786,6 @@ def expected_versions_manifest(project):
                 "version": 2,
                 "latest_version": 2,
                 "time_spine": None,
-                "freshness": None,
                 "doc_blocks": [],
             },
             "model.test.ref_versioned_model": {
@@ -1844,7 +1845,6 @@ def expected_versions_manifest(project):
                 "version": None,
                 "latest_version": None,
                 "time_spine": None,
-                "freshness": None,
                 "doc_blocks": [],
             },
             "test.test.unique_versioned_model_v1_first_name.6138195dec": {
