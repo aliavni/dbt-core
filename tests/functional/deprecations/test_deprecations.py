@@ -1,4 +1,5 @@
 import os
+import sys
 from collections import defaultdict
 from unittest import mock
 
@@ -7,6 +8,7 @@ import yaml
 
 import dbt_common
 from dbt import deprecations
+from dbt.cli.main import dbtRunner
 from dbt.clients.registry import _get_cached
 from dbt.events.types import (
     CustomKeyInConfigDeprecation,
@@ -15,6 +17,7 @@ from dbt.events.types import (
     DeprecationsSummary,
     DuplicateYAMLKeysDeprecation,
     GenericJSONSchemaValidationDeprecation,
+    ModelParamUsageDeprecation,
     PackageRedirectDeprecation,
     WEOIncludeExcludeDeprecation,
 )
@@ -432,9 +435,6 @@ class TestCustomOutputPathInSourceFreshnessDeprecation:
         assert len(event_catcher.caught_events) == 1
 
 
-@pytest.mark.skip(
-    reason="Skip until we have have regenerated the json schemas to account for all happy path failures"
-)
 class TestHappyPathProjectHasNoDeprecations:
     @mock.patch.dict(os.environ, {"DBT_ENV_PRIVATE_RUN_JSONSCHEMA_VALIDATIONS": "True"})
     def test_happy_path_project_has_no_deprecations(self, happy_path_project):
@@ -491,3 +491,95 @@ class TestWEOIncludeExcludeDeprecation:
                 assert "exclude" in event_catcher.caught_events[0].info.msg
             else:
                 assert "exclude" not in event_catcher.caught_events[0].info.msg
+
+
+class TestModelsParamUsageDeprecation:
+
+    @mock.patch.object(sys, "argv", ["dbt", "ls", "--models", "some_model"])
+    def test_models_usage(self, project):
+        event_catcher = EventCatcher(ModelParamUsageDeprecation)
+
+        assert len(event_catcher.caught_events) == 0
+        run_dbt(
+            ["ls", "--models", "some_model"],
+            callbacks=[event_catcher.catch],
+        )
+        assert len(event_catcher.caught_events) == 1
+
+
+class TestModelsParamUsageRunnerDeprecation:
+
+    def test_models_usage(self, project):
+        event_catcher = EventCatcher(ModelParamUsageDeprecation)
+
+        assert len(event_catcher.caught_events) == 0
+        dbtRunner(callbacks=[event_catcher.catch]).invoke(["ls", "--models", "some_model"])
+        assert len(event_catcher.caught_events) == 1
+
+
+class TestModelParamUsageDeprecation:
+    @mock.patch.object(sys, "argv", ["dbt", "ls", "--model", "some_model"])
+    def test_model_usage(self, project):
+        event_catcher = EventCatcher(ModelParamUsageDeprecation)
+
+        assert len(event_catcher.caught_events) == 0
+        run_dbt(
+            ["ls", "--model", "some_model"],
+            callbacks=[event_catcher.catch],
+        )
+        assert len(event_catcher.caught_events) == 1
+
+
+class TestModelParamUsageRunnerDeprecation:
+
+    def test_model_usage(self, project):
+        event_catcher = EventCatcher(ModelParamUsageDeprecation)
+
+        assert len(event_catcher.caught_events) == 0
+        dbtRunner(callbacks=[event_catcher.catch]).invoke(["ls", "--model", "some_model"])
+        assert len(event_catcher.caught_events) == 1
+
+
+class TestMParamUsageDeprecation:
+    @mock.patch.object(sys, "argv", ["dbt", "ls", "-m", "some_model"])
+    def test_m_usage(self, project):
+        event_catcher = EventCatcher(ModelParamUsageDeprecation)
+
+        assert len(event_catcher.caught_events) == 0
+        run_dbt(
+            ["ls", "-m", "some_model"],
+            callbacks=[event_catcher.catch],
+        )
+        assert len(event_catcher.caught_events) == 1
+
+
+class TestMParamUsageRunnerDeprecation:
+    def test_m_usage(self, project):
+        event_catcher = EventCatcher(ModelParamUsageDeprecation)
+
+        assert len(event_catcher.caught_events) == 0
+        dbtRunner(callbacks=[event_catcher.catch]).invoke(["ls", "-m", "some_model"])
+        assert len(event_catcher.caught_events) == 1
+
+
+class TestSelectParamNoModelUsageDeprecation:
+
+    @mock.patch.object(sys, "argv", ["dbt", "ls", "--select", "some_model"])
+    def test_select_usage(self, project):
+        event_catcher = EventCatcher(ModelParamUsageDeprecation)
+
+        assert len(event_catcher.caught_events) == 0
+        run_dbt(
+            ["ls", "--select", "some_model"],
+            callbacks=[event_catcher.catch],
+        )
+        assert len(event_catcher.caught_events) == 0
+
+
+class TestSelectParamNoModelUsageRunnerDeprecation:
+    def test_select_usage(self, project):
+        event_catcher = EventCatcher(ModelParamUsageDeprecation)
+
+        assert len(event_catcher.caught_events) == 0
+        dbtRunner(callbacks=[event_catcher.catch]).invoke(["ls", "--select", "some_model"])
+        assert len(event_catcher.caught_events) == 0
