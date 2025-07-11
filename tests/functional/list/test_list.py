@@ -644,6 +644,8 @@ class TestList:
                     },
                     "meta": {"test": 1},
                     "tags": ["tag"],
+                    "loaded_at_query": None,
+                    "loaded_at_field": "column_name",
                 },
                 "unique_id": "source.test.my_source.my_table",
                 "original_file_path": normalize("models/schema.yml"),
@@ -937,7 +939,6 @@ class TestList:
                     "config": {
                         "alias": "test_alias",
                         "database": "dbt",
-                        "docs": {"node_color": "blue", "show": True},
                         "enabled": True,
                         "error_if": "!= 0",
                         "fail_calc": "count(*)",

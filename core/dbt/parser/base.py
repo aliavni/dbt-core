@@ -24,11 +24,15 @@ from dbt.exceptions import (
     InvalidAccessTypeError,
 )
 from dbt.flags import get_flags
+from dbt.jsonschemas import validate_model_config
 from dbt.node_types import AccessType, ModelLanguage, NodeType
 from dbt.parser.common import resource_types_to_schema_file_keys
 from dbt.parser.search import FileBlock
 from dbt_common.clients._jinja_blocks import ExtractWarning
 from dbt_common.dataclass_schema import ValidationError
+from dbt_common.events.base_types import EventLevel
+from dbt_common.events.functions import fire_event
+from dbt_common.events.types import Note
 from dbt_common.utils import deep_merge
 
 # internally, the parser may store a less-restrictive type that will be
@@ -295,6 +299,14 @@ class ConfiguredParser(
         # These call the RelationUpdate callable to go through generate_name macros
         self._update_node_database(parsed_node, config_dict.get("database"))
         self._update_node_schema(parsed_node, config_dict.get("schema"))
+        if parsed_node.schema is None:
+            fire_event(
+                Note(
+                    msg=f"Node schema set to None from generate_schema_name call for node '{parsed_node.unique_id}'."
+                ),
+                level=EventLevel.DEBUG,
+            )
+
         self._update_node_alias(parsed_node, config_dict.get("alias"))
 
         # Snapshot nodes use special "target_database" and "target_schema" fields
@@ -316,6 +328,7 @@ class ConfiguredParser(
         context=None,
         patch_config_dict=None,
         patch_file_id=None,
+        validate_config_call_dict: bool = False,
     ) -> None:
         """Given the ContextConfig used for parsing and the parsed node,
         generate and set the true values to use, overriding the temporary parse
@@ -403,6 +416,13 @@ class ConfiguredParser(
         parsed_node.unrendered_config = config.build_config_dict(
             rendered=False, patch_config_dict=patch_config_dict
         )
+
+        # We validate the _config_call_dict here because there is more than
+        # one way that the _config_call_dict can be set and also, later it gets
+        # read multiple times. Doing the validation here ensures that the config
+        # is only validated once.
+        if parsed_node.resource_type == NodeType.Model and validate_config_call_dict:
+            validate_model_config(config._config_call_dict, parsed_node.original_file_path)
 
         parsed_node.config_call_dict = config._config_call_dict
         parsed_node.unrendered_config_call_dict = config._unrendered_config_call_dict

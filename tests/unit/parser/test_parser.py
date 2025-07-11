@@ -6,6 +6,7 @@ from unittest import mock
 
 import yaml
 
+import dbt_common.events.functions
 from dbt import tracking
 from dbt.artifacts.resources import ModelConfig, RefArgs
 from dbt.artifacts.resources.v1.model import (
@@ -309,22 +310,29 @@ SINGLE_TABLE_MODEL_FRESHNESS = """
 models:
     - name: my_model
       description: A description of my model
-      freshness:
-        build_after: {count: 4, period: day, updates_on: all}
       config:
         freshness:
-          build_after: {count: 1, period: day, updates_on: any}
+          build_after: {count: 1, period: day, updates_on: all}
+"""
+
+SINGLE_TABLE_MODEL_TOP_LEVEL_FRESHNESS = """
+models:
+    - name: my_model
+      description: A description of my model
+      freshness:
+        build_after: {count: 1, period: day, updates_on: any}
 """
 
 SINGLE_TABLE_MODEL_FRESHNESS_ONLY_DEPEND_ON = """
 models:
     - name: my_model
       description: A description of my model
-      freshness:
-        build_after:
+      config:
+        freshness:
+          build_after:
             updates_on: all
             period: hour
-            count: 0
+            count: 5
 """
 
 
@@ -453,6 +461,22 @@ sources:
       - name: my_table
         loaded_at_query: "select 1 as id"
 """
+
+SOURCE_FRESHNESS_AT_TABLE_AND_CONFIG = """
+sources:
+  - name: my_source
+    loaded_at_field: test
+    tables:
+      - name: my_table
+        freshness:
+            warn_after: {count: 1, period: hour}
+            error_after: {count: 1, period: day}
+        config:
+            freshness:
+                warn_after: {count: 2, period: hour}
+                error_after: {count: 2, period: day}
+"""
+
 SOURCE_FIELD_AT_CUSTOM_FRESHNESS_BOTH_AT_TABLE = """
 sources:
   - name: my_source
@@ -476,6 +500,12 @@ sources:
 class SchemaParserTest(BaseParserTest):
     def setUp(self):
         super().setUp()
+        # Reset `warn_error` to False so we don't raise warnigns about top level freshness as errors
+        set_from_args(
+            Namespace(warn_error=False, state_modified_compare_more_unrendered_values=False),
+            None,
+        )
+
         self.parser = SchemaParser(
             project=self.snowplow_project_config,
             manifest=self.manifest,
@@ -556,6 +586,19 @@ class SchemaParserSourceTest(SchemaParserTest):
         unpatched_src_default = self.parser.manifest.sources["source.snowplow.my_source.my_table"]
         with self.assertRaises(ParsingError):
             self.source_patcher.parse_source(unpatched_src_default)
+
+    @mock.patch("dbt.parser.sources.get_adapter")
+    def test_parse_source_resulting_node_freshness_matches_config_freshness(self, _):
+        block = self.file_block_for(SOURCE_FRESHNESS_AT_TABLE_AND_CONFIG, "test_one.yml")
+        dct = yaml_from_file(block.file, validate=True)
+        self.parser.parse_file(block, dct)
+        unpatched_src_default = self.parser.manifest.sources["source.snowplow.my_source.my_table"]
+        src_default = self.source_patcher.parse_source(unpatched_src_default)
+        assert src_default.freshness == src_default.config.freshness
+        assert src_default.freshness.warn_after.count == 2
+        assert src_default.freshness.warn_after.period == "hour"
+        assert src_default.freshness.error_after.count == 2
+        assert src_default.freshness.error_after.period == "day"
 
     @mock.patch("dbt.parser.sources.get_adapter")
     def test_parse_source_field_at_custom_freshness_both_at_source_fails(self, _):
@@ -673,6 +716,11 @@ class SchemaParserSourceTest(SchemaParserTest):
         self.assertEqual(self.parser.manifest.files[file_id].source_patches, [])
 
     def test__read_source_patch(self):
+
+        # TODO: There needs to be a better way to disable warnings being fired
+        # during unit tests, but all we have today is this global variable.
+        dbt_common.events.functions.WARN_ERROR = False
+
         block = self.yaml_block_for(SINGLE_TABLE_SOURCE_PATCH, "test_one.yml")
         analysis_tests = AnalysisPatchParser(self.parser, block, "analyses").parse().test_blocks
         model_tests = TestablePatchParser(self.parser, block, "models").parse().test_blocks
@@ -703,7 +751,7 @@ class SchemaParserModelsTest(SchemaParserTest):
         my_model_node = MockNode(
             package="root",
             name="my_model",
-            config=mock.MagicMock(enabled=True),
+            config=ModelConfig(enabled=True),
             refs=[],
             sources=[],
             patch_path=None,
@@ -736,9 +784,22 @@ class SchemaParserModelsTest(SchemaParserTest):
 
         assert self.parser.manifest.nodes[
             "model.root.my_model"
-        ].freshness.build_after == ModelBuildAfter(
+        ].config.freshness.build_after == ModelBuildAfter(
             count=1, period="day", updates_on=ModelFreshnessUpdatesOnOptions.all
         )
+
+    def test__parse_model_ignores_top_level_freshness(self):
+        block = self.file_block_for(SINGLE_TABLE_MODEL_TOP_LEVEL_FRESHNESS, "test_one.yml")
+        self.parser.manifest.files[block.file.file_id] = block.file
+        dct = yaml_from_file(block.file, validate=True)
+        self.parser.parse_file(block, dct)
+        self.assert_has_manifest_lengths(self.parser.manifest, nodes=1)
+
+        # we can't use hasattr because the model node is a mock, and checking with hasattr will add it to the mock
+        assert "freshness" not in self.parser.manifest.nodes["model.root.my_model"].__dir__()
+
+        # should be None because nothing set it
+        assert self.parser.manifest.nodes["model.root.my_model"].config.freshness is None
 
     def test__parse_model_freshness_depend_on(self):
         block = self.file_block_for(SINGLE_TABLE_MODEL_FRESHNESS_ONLY_DEPEND_ON, "test_one.yml")
@@ -748,8 +809,8 @@ class SchemaParserModelsTest(SchemaParserTest):
         self.assert_has_manifest_lengths(self.parser.manifest, nodes=1)
         assert self.parser.manifest.nodes[
             "model.root.my_model"
-        ].freshness.build_after == ModelBuildAfter(
-            count=0, period="hour", updates_on=ModelFreshnessUpdatesOnOptions.all
+        ].config.freshness.build_after == ModelBuildAfter(
+            count=5, period="hour", updates_on=ModelFreshnessUpdatesOnOptions.all
         )
 
     def test__read_basic_model_tests_wrong_severity(self):

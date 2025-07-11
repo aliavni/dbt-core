@@ -592,10 +592,12 @@ class GenericJSONSchemaValidationDeprecation(WarnLevel):
         return "D022"
 
     def message(self) -> str:
+        possible_causes = "This generally means that either we failed to catch this as a more specific deprecation type OR our JSONSchema had a regression (and this deprecation was erroneous)."
+
         if self.key_path == "":
-            description = f"{self.violation} at top level in file `{self.file}`"
+            description = f"{self.violation} at top level in file `{self.file}` is possibly a deprecation. {possible_causes}"
         else:
-            description = f"{self.violation} in file `{self.file}` at path `{self.key_path}`"
+            description = f"{self.violation} in file `{self.file}` at path `{self.key_path}` is possibly a deprecation. {possible_causes}"
 
         return line_wrap_message(deprecation_tag(description, self.__class__.__name__))
 
@@ -632,7 +634,11 @@ class CustomKeyInConfigDeprecation(WarnLevel):
         return "D026"
 
     def message(self) -> str:
-        description = f"Custom key `{self.key}` found in `config` at path `{self.key_path}` in file `{self.file}`. Custom config keys should move into the `config.meta`."
+        path_specification = ""
+        if self.key_path != "":
+            path_specification = f" at path `{self.key_path}`"
+
+        description = f"Custom key `{self.key}` found in `config`{path_specification} in file `{self.file}`. Custom config keys should move into the `config.meta`."
         return line_wrap_message(deprecation_tag(description, self.__class__.__name__))
 
 
@@ -698,6 +704,33 @@ class WEOIncludeExcludeDeprecation(WarnLevel):
             description += " Please use `warn` instead of `exclude`."
 
         return line_wrap_message(deprecation_tag(description, self.__class__.__name__))
+
+
+class ModelParamUsageDeprecation(WarnLevel):
+    def code(self) -> str:
+        return "D032"
+
+    def message(self) -> str:
+        description = "Usage of `--models`, `--model`, and `-m` is deprecated in favor of `--select` or `-s`."
+        return line_wrap_message(deprecation_tag(description))
+
+
+class SourceOverrideDeprecation(WarnLevel):
+    def code(self) -> str:
+        return "D035"
+
+    def message(self) -> str:
+        description = f"The source property `overrides` is deprecated but was found on source `{self.source_name}` in file `{self.file}`. Instead, `enabled` should be used to disable the unwanted source."
+        return line_wrap_message(deprecation_tag(description))
+
+
+class EnvironmentVariableNamespaceDeprecation(WarnLevel):
+    def code(self) -> str:
+        return "D036"
+
+    def message(self) -> str:
+        description = f"Found custom environment variable `{self.env_var}` in the environment. The prefix `{self.reserved_prefix}` is reserved for dbt engine environment variables. Custom environment variables with the prefix `{self.reserved_prefix}` may cause collisions and runtime errors."
+        return line_wrap_message(deprecation_tag(description))
 
 
 # =======================================================
