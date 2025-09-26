@@ -8,6 +8,7 @@ from dbt.artifacts.resources import (
     Analysis,
     Documentation,
     Exposure,
+    Function,
     GenericTest,
     Group,
     HookNode,
@@ -41,14 +42,7 @@ from dbt_common.exceptions import DbtInternalError
 NodeEdgeMap = Dict[str, List[str]]
 UniqueID = str
 ManifestResource = Union[
-    Seed,
-    Analysis,
-    SingularTest,
-    HookNode,
-    Model,
-    SqlOperation,
-    GenericTest,
-    Snapshot,
+    Seed, Analysis, SingularTest, HookNode, Model, SqlOperation, GenericTest, Snapshot, Function
 ]
 DisabledManifestResource = Union[
     ManifestResource,
@@ -174,6 +168,10 @@ class WritableManifest(ArtifactMixin):
         metadata=dict(
             description="The unit tests defined in the project",
         )
+    )
+    functions: Mapping[UniqueID, Function] = field(
+        default_factory=dict,
+        metadata=dict(description=("The functions defined in the dbt project")),
     )
 
     @classmethod

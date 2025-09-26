@@ -56,6 +56,7 @@ from dbt.contracts.graph.metrics import MetricReference, ResolvedMetricReference
 from dbt.contracts.graph.nodes import (
     AccessType,
     Exposure,
+    FunctionNode,
     Macro,
     ManifestNode,
     ModelNode,
@@ -454,6 +455,41 @@ class BaseMetricResolver(BaseResolver):
             package, name = args
         else:
             raise MetricArgsError(node=self.model, args=args)
+        self.validate_args(name, package)
+        return self.resolve(name, package)
+
+
+class BaseFunctionResolver(BaseResolver):
+    @abc.abstractmethod
+    def resolve(self, name: str, package: Optional[str] = None): ...
+
+    def _repack_args(self, name: str, package: Optional[str]) -> List[str]:
+        if package is None:
+            return [name]
+        else:
+            return [package, name]
+
+    def validate_args(self, name: str, package: Optional[str]):
+        if not isinstance(name, str):
+            raise CompilationError(
+                f"The name argument to function() must be a string, got {type(name)}"
+            )
+
+        if package is not None and not isinstance(package, str):
+            raise CompilationError(
+                f"The package argument to function() must be a string or None, got {type(package)}"
+            )
+
+    def __call__(self, *args: str):
+        name: str
+        package: Optional[str] = None
+
+        if len(args) == 1:
+            name = args[0]
+        elif len(args) == 2:
+            package, name = args
+        else:
+            raise RefArgsError(node=self.model, args=args)
         self.validate_args(name, package)
         return self.resolve(name, package)
 
@@ -912,6 +948,48 @@ class UnitTestVar(RuntimeVar):
         super().__init__(context, config_copy or config, node=node)
 
 
+# `function` implementations.
+class ParseFunctionResolver(BaseFunctionResolver):
+    def resolve(self, name: str, package: Optional[str] = None):
+        # When you call function(), this is what happens at parse time
+        self.model.functions.append(self._repack_args(name, package))
+        return self.Relation.create_from(self.config, self.model)
+
+
+class RuntimeFunctionResolver(BaseFunctionResolver):
+    def resolve(self, name: str, package: Optional[str] = None):
+        target_function = self.manifest.resolve_function(
+            name,
+            package,
+            self.current_project,
+            self.model.package_name,
+        )
+
+        if target_function is None or isinstance(target_function, Disabled):
+            raise TargetNotFoundError(
+                node=self.model,
+                target_name=name,
+                target_kind="function",
+                disabled=(isinstance(target_function, Disabled)),
+            )
+
+        # Source quoting does _not_ respect global configs in dbt_project.yml, as documented here:
+        # https://docs.getdbt.com/reference/project-configs/quoting
+        # Use an object with an empty quoting field to bypass any settings in self.
+        class SourceQuotingBaseConfig:
+            quoting: Dict[str, Any] = {}
+
+        return self.Relation.create_from(
+            SourceQuotingBaseConfig(),
+            target_function,
+            limit=self.resolve_limit,
+            event_time_filter=self.resolve_event_time_filter(target_function),
+        )
+
+
+# TODO: Add RuntimeUnitTestFunctionResolver CT-12024
+
+
 # Providers
 class Provider(Protocol):
     execute: bool
@@ -921,6 +999,7 @@ class Provider(Protocol):
     ref: Type[BaseRefResolver]
     source: Type[BaseSourceResolver]
     metric: Type[BaseMetricResolver]
+    function: Type[BaseFunctionResolver]
 
 
 class ParseProvider(Provider):
@@ -931,6 +1010,7 @@ class ParseProvider(Provider):
     ref = ParseRefResolver
     source = ParseSourceResolver
     metric = ParseMetricResolver
+    function = ParseFunctionResolver
 
 
 class GenerateNameProvider(Provider):
@@ -941,6 +1021,7 @@ class GenerateNameProvider(Provider):
     ref = ParseRefResolver
     source = ParseSourceResolver
     metric = ParseMetricResolver
+    function = ParseFunctionResolver
 
 
 class RuntimeProvider(Provider):
@@ -951,6 +1032,7 @@ class RuntimeProvider(Provider):
     ref = RuntimeRefResolver
     source = RuntimeSourceResolver
     metric = RuntimeMetricResolver
+    function = RuntimeFunctionResolver
 
 
 class RuntimeUnitTestProvider(Provider):
@@ -961,6 +1043,7 @@ class RuntimeUnitTestProvider(Provider):
     ref = RuntimeUnitTestRefResolver
     source = RuntimeUnitTestSourceResolver
     metric = RuntimeMetricResolver
+    function = RuntimeFunctionResolver
 
 
 class OperationProvider(RuntimeProvider):
@@ -1202,6 +1285,10 @@ class ProviderContext(ManifestContext):
     @contextproperty()
     def metric(self) -> Callable:
         return self.provider.metric(self.db_wrapper, self.model, self.config, self.manifest)
+
+    @contextproperty()
+    def function(self) -> Callable:
+        return self.provider.function(self.db_wrapper, self.model, self.config, self.manifest)
 
     @contextproperty("config")
     def ctx_config(self) -> Config:
@@ -1791,6 +1878,14 @@ class UnitTestContext(ModelContext):
         return None
 
 
+class FunctionContext(ModelContext):
+    model: FunctionNode
+
+    @contextproperty()
+    def this(self) -> Optional[RelationProxy]:
+        return self.db_wrapper.Relation.create_from(self.config, self.model)
+
+
 # This is called by '_context_for', used in 'render_with_context'
 def generate_parser_model_context(
     model: ManifestNode,
@@ -1886,6 +1981,15 @@ def generate_runtime_unit_test_context(
                 ctx_dict["dbt"][macro_name] = macro_override_value
 
     return ctx_dict
+
+
+def generate_runtime_function_context(
+    function: FunctionNode,
+    config: RuntimeConfig,
+    manifest: Manifest,
+) -> Dict[str, Any]:
+    ctx = FunctionContext(function, config, manifest, OperationProvider(), None)
+    return ctx.to_dict()
 
 
 class ExposureRefResolver(BaseResolver):
